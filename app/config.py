@@ -37,6 +37,14 @@ def _normalize_database_url(database_url: str) -> str:
     return normalized
 
 
+def _parse_int_secret(name: str, default: int) -> int:
+    raw_value = _secret(name, default)
+    try:
+        return int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -55,5 +63,5 @@ def get_settings() -> Settings:
         database_url=database_url,
         openai_api_key=_secret("OPENAI_API_KEY", "").strip(),
         openai_model=_secret("OPENAI_MODEL", "gpt-4o-mini").strip(),
-        password_rounds=int(_secret("PASSWORD_ROUNDS", 12)),
+        password_rounds=_parse_int_secret("PASSWORD_ROUNDS", 12),
     )
