@@ -15,7 +15,7 @@ if __package__ in (None, ""):
 from app.auth import authenticate_user, create_user, logout
 from app.config import get_settings
 from app.database import init_db
-from app.lessons import get_languages, get_lessons, get_recommended_next_step
+from app.lessons import get_lesson_catalog_summary, get_languages, get_lessons, get_recommended_next_step
 from app.progress import get_leaderboard, get_personalized_suggestions, get_user_progress, save_progress, summarize_progress
 from app.quiz import build_quiz, grade_quiz
 from app.tutor import generate_learning_tip, load_chat_history, persist_message, stream_tutor_reply
@@ -55,6 +55,13 @@ def apply_theme() -> None:
             color: white;
             font-size: 0.8rem;
             margin-right: 0.35rem;
+        }
+        .xp-card {
+            border-radius: 18px;
+            padding: 1rem 1.2rem;
+            background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(14,165,233,0.12));
+            border: 1px solid rgba(245,158,11,0.20);
+            margin-bottom: 1rem;
         }
         </style>
         """,
@@ -130,6 +137,8 @@ def home_page() -> None:
     summary = summarize_progress(st.session_state.user_id, language)
     suggestions = get_personalized_suggestions(st.session_state.user_id, language)
     tip = generate_learning_tip(language, summary)
+    catalog = get_lesson_catalog_summary(language)
+    level = summary["level"]
 
     st.title("🏠 Home")
     st.markdown(
@@ -142,6 +151,17 @@ def home_page() -> None:
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(
+        f"""
+        <div class="xp-card">
+            <h3>Level {level['name']}</h3>
+            <p>{level['xp']} XP earned in {language}.</p>
+            <p>{'Next level: ' + level['next_name'] if level['next_name'] else 'You reached the current top learner tier.'}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.progress(level["progress"] / 100 if level["progress"] else 0.0, text=f"{level['progress']:.0f}% to next level")
 
     cols = st.columns(4)
     metrics = [
@@ -158,6 +178,16 @@ def home_page() -> None:
     for suggestion in suggestions:
         st.info(suggestion)
 
+    st.subheader("🧭 Learning map")
+    map_cols = st.columns(3)
+    map_cols[0].metric("Curriculum lessons", str(catalog["count"]))
+    map_cols[1].metric("Estimated study time", f"{catalog['minutes']} min")
+    map_cols[2].metric("Focus areas", str(len(catalog["focus_areas"])))
+    st.caption(
+        "Curriculum mix: "
+        + ", ".join(f"{level_name} {count}" for level_name, count in catalog["levels"].items())
+    )
+
     st.subheader("🏆 Leaderboard")
     leaderboard = get_leaderboard()
     if leaderboard:
@@ -169,7 +199,7 @@ def home_page() -> None:
 def lessons_page() -> None:
     language = st.session_state.selected_language
     st.title("📘 Lessons")
-    st.caption(f"Beginner lessons for {language}.")
+    st.caption(f"Structured learning path for {language} with beginner and intermediate content.")
 
     for lesson in get_lessons(language):
         with st.container(border=True):
@@ -179,6 +209,15 @@ def lessons_page() -> None:
                 unsafe_allow_html=True,
             )
             st.write(lesson["concept"])
+            meta_left, meta_right = st.columns([1, 1])
+            with meta_left:
+                st.markdown("**Learning goals**")
+                for goal in lesson["learning_goals"]:
+                    st.write(f"• {goal}")
+            with meta_right:
+                st.markdown("**Key vocabulary**")
+                st.write(", ".join(lesson["vocabulary"]))
+                st.caption(f"Suggested study time: {lesson['minutes']} minutes")
             left, right = st.columns([1.4, 1])
             with left:
                 st.markdown("**Examples**")
@@ -187,6 +226,8 @@ def lessons_page() -> None:
             with right:
                 st.markdown("**Grammar tip**")
                 st.success(lesson["grammar_tip"])
+                st.markdown("**Practice prompt**")
+                st.write(lesson["practice_prompt"])
             if st.button(f"Mark '{lesson['title']}' as reviewed", key=f"review_{language}_{lesson['title']}"):
                 save_progress(st.session_state.user_id, language, lesson["title"], 1.0, 100.0)
                 st.success("Lesson review saved.")
@@ -254,6 +295,8 @@ def quiz_page() -> None:
         results = grade_quiz(questions, answers)
         save_progress(st.session_state.user_id, language, lesson_title, results["score"], results["accuracy"])
         st.success(f"Score: {results['correct']}/{results['total']} | Accuracy: {results['accuracy']:.0f}%")
+        if results["accuracy"] >= 85:
+            st.balloons()
         with st.expander("Answer review"):
             for question, answer in zip(questions, answers):
                 st.write(f"Question: {question['question']}")
@@ -267,19 +310,40 @@ def progress_page() -> None:
     language = st.session_state.selected_language
     summary = summarize_progress(st.session_state.user_id, language)
     records = get_user_progress(st.session_state.user_id, language)
+    level = summary["level"]
 
     st.title("📊 Progress")
     st.caption(f"Your learning performance in {language}.")
 
-    col1, col2, col3 = st.columns(3)
+    st.markdown(
+        f"""
+        <div class="xp-card">
+            <h3>{level['name']}</h3>
+            <p>{level['xp']} XP earned so far.</p>
+            <p>{f"{level['xp_to_next']} XP until {level['next_name']}" if level['next_name'] else "Top level reached in the current progression system."}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.progress(level["progress"] / 100 if level["progress"] else 0.0, text=f"{level['progress']:.0f}% through current level")
+
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Completed lessons", f"{summary['completed']}/{summary['total']}")
     col2.metric("Average score", f"{summary['avg_score']:.1f}")
     col3.metric("Accuracy", percentage(summary["avg_accuracy"]))
-    st.metric("Current streak", f"{summary['streak']} days")
+    col4.metric("Current streak", f"{summary['streak']} days")
 
     st.subheader("Suggested next actions")
     for suggestion in get_personalized_suggestions(st.session_state.user_id, language):
         st.write(f"• {suggestion}")
+
+    if summary["focus_counts"]:
+        st.subheader("Focus coverage")
+        st.dataframe(
+            [{"Focus": focus, "Completed lessons": count} for focus, count in summary["focus_counts"].items()],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     if records:
         st.subheader("Recent activity")
