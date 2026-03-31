@@ -1,6 +1,16 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+# Support running this file directly on platforms like Streamlit Cloud,
+# where `app/main.py` may be selected as the app entrypoint.
+if __package__ in (None, ""):
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
 from app.auth import authenticate_user, create_user, logout
 from app.config import get_settings
