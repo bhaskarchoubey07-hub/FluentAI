@@ -11,6 +11,11 @@ from app.database import ChatHistory, get_session
 
 def get_client() -> OpenAI:
     settings = get_settings()
+    if settings.llm_provider == "groq":
+        if not settings.groq_api_key:
+            raise ValueError("GROQ_API_KEY is not configured. Add it to your .env file or Streamlit secrets.")
+        return OpenAI(api_key=settings.groq_api_key, base_url="https://api.groq.com/openai/v1")
+
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not configured. Add it to your .env file or Streamlit secrets.")
     return OpenAI(api_key=settings.openai_api_key)
@@ -44,7 +49,7 @@ def stream_tutor_reply(language: str, history: list[dict[str, str]]) -> Iterable
     settings = get_settings()
     messages = [{"role": "system", "content": build_system_prompt(language)}] + history
     stream = client.chat.completions.create(
-        model=settings.openai_model,
+        model=settings.llm_model,
         messages=messages,
         temperature=0.7,
         stream=True,
