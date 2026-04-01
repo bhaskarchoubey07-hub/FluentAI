@@ -14,7 +14,7 @@ if __package__ in (None, ""):
 
 from app.auth import authenticate_user, create_user, logout
 from app.config import get_settings
-from app.database import init_db
+from app.database import get_active_database_url, init_db
 from app.lessons import get_lesson_catalog_summary, get_languages, get_lessons, get_recommended_next_step
 from app.progress import get_leaderboard, get_personalized_suggestions, get_user_progress, save_progress, summarize_progress
 from app.quiz import build_quiz, grade_quiz
@@ -368,7 +368,10 @@ def run() -> None:
     apply_theme()
     init_db()
     init_session_state()
-    get_settings()
+    settings = get_settings()
+
+    if not settings.database_url.startswith("sqlite") and get_active_database_url().startswith("sqlite"):
+        st.warning("PostgreSQL could not be reached, so FluentAI started with SQLite fallback storage.")
 
     if not st.session_state.authenticated:
         auth_screen()

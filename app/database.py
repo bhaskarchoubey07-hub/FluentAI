@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Iterator
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from app.config import get_settings
@@ -57,19 +58,40 @@ class ChatHistory(Base):
 
 
 settings = get_settings()
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(
-    settings.database_url,
-    echo=False,
-    future=True,
-    connect_args=connect_args,
-    pool_pre_ping=True,
-)
+ACTIVE_DATABASE_URL = settings.database_url
+
+
+def _make_engine(database_url: str):
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    return create_engine(
+        database_url,
+        echo=False,
+        future=True,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+    )
+
+
+engine = _make_engine(ACTIVE_DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
+def _switch_to_sqlite_fallback() -> None:
+    global ACTIVE_DATABASE_URL, engine, SessionLocal
+    if ACTIVE_DATABASE_URL.startswith("sqlite"):
+        return
+
+    ACTIVE_DATABASE_URL = "sqlite:///fluentai.db"
+    engine = _make_engine(ACTIVE_DATABASE_URL)
+    SessionLocal.configure(bind=engine)
+
+
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except OperationalError:
+        _switch_to_sqlite_fallback()
+        Base.metadata.create_all(bind=engine)
 
 
 @contextmanager
@@ -112,3 +134,7 @@ def get_current_streak(user_id: int) -> int:
         else:
             break
     return streak
+
+
+def get_active_database_url() -> str:
+    return ACTIVE_DATABASE_URL
